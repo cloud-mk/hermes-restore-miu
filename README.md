@@ -50,4 +50,4 @@ GitHub Actions 提供 Windows 构建与核心测试。推送 `v*` 标签会构�
 - [Hermes 官方 CLI 文档](https://hermes-agent.nousresearch.com/docs/reference/cli-commands)
 - [Hermes 官方安装文档](https://hermes-agent.nousresearch.com/docs/getting-started/installation)
 
-独立社区工具，与 Nous Research / Hermes 官方无关联。代码按 MIT 许可证发布；仓库插画由项目创作者提供的猫咪形象经 AI 制作，未使用 CrystalDiskInfo 的人物或界面素材。
+独立社区工具，与 Nous Research / Hermes 官方无关联。代码按 MIT 许可证发布；仓库插画由项目创作者提供的猫咪形象经 AI 制作。
