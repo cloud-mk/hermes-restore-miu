@@ -1,0 +1,25 @@
+name: Publish tagged release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        shell: pwsh
+        run: |
+          ./build.ps1
+          ./test.ps1
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$env:RELEASE_TAG" dist/HermesRestore-miu-edition.zip dist/SHA256SUMS.txt --title "miu edition $env:RELEASE_TAG" --notes-file docs/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

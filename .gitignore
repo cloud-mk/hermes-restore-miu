@@ -1,0 +1,13 @@
+dist/
+work/
+*.user
+*.suo
+*.pdb
+*.log
+.env
+auth.json
+*.db
+*.db-wal
+*.db-shm
+hermes-backup-*.zip
+*.tmp

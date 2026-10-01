@@ -1,0 +1,25 @@
+name: Windows build and core tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: pwsh
+        run: ./build.ps1
+      - name: Core tests
+        shell: pwsh
+        run: ./test.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HermesRestore-miu-edition
+          path: |
+            dist/HermesRestore-miu-edition.zip
+            dist/SHA256SUMS.txt
