@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -207,6 +207,16 @@ public class RaisedButton : Button {
  protected override void OnPaint(PaintEventArgs e){var g=e.Graphics;g.Clear(Surface());g.SmoothingMode=SmoothingMode.AntiAlias;float d=DeviceDpi/96f;var r=new RectangleF(d/2,d/2,Width-d,Height-d);Color fill=Primary?CuteTheme.Blue:Pink?Color.FromArgb(255,236,243):Color.FromArgb(246,250,255);Color ink=Primary?Color.White:Pink?Color.FromArgb(188,68,108):CuteTheme.Navy;Color border=Primary?CuteTheme.Blue:Color.FromArgb(193,213,237);if(hover)fill=Primary?Color.FromArgb(35,107,209):Color.FromArgb(229,240,254);if(pressed)fill=Primary?Color.FromArgb(28,91,184):Color.FromArgb(211,229,251);if(!Enabled){fill=Color.FromArgb(243,246,250);ink=Color.FromArgb(139,155,175);border=Color.FromArgb(219,228,239);}using(var path=CuteTheme.Round(r,6*d)){using(var brush=new SolidBrush(fill))g.FillPath(brush,path);using(var pen=new Pen(border,d))g.DrawPath(pen,path);}TextRenderer.DrawText(g,Text,Font,Rectangle.Inflate(ClientRectangle,-(int)(5*d),0),ink,TextFormatFlags.PreserveGraphicsClipping|TextFormatFlags.VerticalCenter|TextFormatFlags.HorizontalCenter|TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis);if(Focused)ControlPaint.DrawFocusRectangle(g,Rectangle.Inflate(ClientRectangle,-(int)(4*d),-(int)(4*d)));}
 
 }
+// Buffer the layout surfaces; individual custom buttons retain their clipping fixes.
+public class BufferedTable : TableLayoutPanel {
+ public BufferedTable(){DoubleBuffered=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+}
+public class BufferedFlow : FlowLayoutPanel {
+ public BufferedFlow(){DoubleBuffered=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+}
+public class BufferedViewport : Panel {
+ public BufferedViewport(){DoubleBuffered=true;SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);}
+}
 public class CardPanel : Panel {
  public bool Inset;public CardPanel(){DoubleBuffered=true;BackColor=Color.Transparent;Padding=new Padding(12);}
  protected override void OnPaintBackground(PaintEventArgs e){base.OnPaintBackground(e);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;var r=new Rectangle(1,1,Width-6,Height-6);using(var sh=CuteTheme.Round(new RectangleF(r.X+2,r.Y+3,r.Width,r.Height),16))using(var b=new SolidBrush(Color.FromArgb(23,141,181,232)))e.Graphics.FillPath(b,sh);using(var path=CuteTheme.Round(r,16)){using(var b=new SolidBrush(Color.FromArgb(253,254,255)))e.Graphics.FillPath(b,path);using(var p=new Pen(Color.FromArgb(214,229,249)))e.Graphics.DrawPath(p,path);}if(Inset){using(var p=new Pen(Color.FromArgb(168,192,224)))e.Graphics.DrawLine(p,r.Left+15,r.Top+1,r.Right-15,r.Top+1);}}
@@ -232,35 +242,52 @@ public class MainWindow : Form {
  Button inspect,restore,doctor,network,gateway; List<Control> actions=new List<Control>(); ArchiveInfo archive; bool busy=false;
  HashSet<string> secrets=new HashSet<string>(); object secretLock=new object();Font logBold;
  string tempDir=Path.Combine(Path.GetTempPath(),"HermesRestore");
+ bool layoutReady,applyingLayout,layoutQueued;Action responsiveLayout,initialLayout;
+ // Native edit controls also need to participate in a single buffered window paint.
+ protected override CreateParams CreateParams {get{var cp=base.CreateParams;cp.ExStyle|=0x02000000;return cp;}}
+ protected override void OnLoad(EventArgs e){base.OnLoad(e);if(initialLayout!=null)initialLayout();}
+ void ScheduleResponsiveLayout(){if(!layoutReady||applyingLayout||layoutQueued||!Visible||IsDisposed)return;layoutQueued=true;BeginInvoke((Action)(()=>{layoutQueued=false;ApplyResponsiveLayout();}));}
+ void ApplyResponsiveLayout(){if(!layoutReady||applyingLayout||IsDisposed)return;applyingLayout=true;try{responsiveLayout();}finally{applyingLayout=false;}}
+
 
  public MainWindow() {
 
-  SuspendLayout();Text="Hermes 数据恢复助手 · miu edition";ClientSize=new Size(940,620);MinimumSize=new Size(640,480);StartPosition=FormStartPosition.CenterScreen;AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
+  SuspendLayout();DoubleBuffered=true;Text="Hermes 数据恢复助手 · miu edition";ClientSize=new Size(940,620);MinimumSize=new Size(640,480);StartPosition=FormStartPosition.CenterScreen;AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
   Font=new Font("Microsoft YaHei UI",9);BackColor=Color.FromArgb(239,247,255);
-  var shell=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Padding=new Padding(0),Margin=new Padding(0)};shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,164));shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));Controls.Add(shell);shell.Controls.Add(new CatSidebar{Dock=DockStyle.Fill,Margin=new Padding(0)},0,0);
-  var viewport=new Panel{Dock=DockStyle.Fill,AutoScroll=true,AutoScrollMinSize=new Size(0,480),Margin=new Padding(0)};shell.Controls.Add(viewport,1,0);
-  var outer=new TableLayoutPanel{Dock=DockStyle.Top,Height=620,Padding=new Padding(12),ColumnCount=1,RowCount=6,Margin=new Padding(0)};viewport.Controls.Add(outer);viewport.SizeChanged+=(sender,e)=>outer.Height=Math.Max((int)(480*DeviceDpi/96f),viewport.ClientSize.Height);Shown+=(sender,e)=>outer.Height=Math.Max((int)(480*DeviceDpi/96f),viewport.ClientSize.Height);
+  var shell=new BufferedTable{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Padding=new Padding(0),Margin=new Padding(0)};shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,164));shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));Controls.Add(shell);shell.Controls.Add(new CatSidebar{Dock=DockStyle.Fill,Margin=new Padding(0)},0,0);
+  var viewport=new BufferedViewport{Dock=DockStyle.Fill,AutoScroll=true,AutoScrollMinSize=new Size(0,480),Margin=new Padding(0)};shell.Controls.Add(viewport,1,0);
+  var outer=new BufferedTable{Dock=DockStyle.Top,Height=620,Padding=new Padding(12),ColumnCount=1,RowCount=6,Margin=new Padding(0)};viewport.Controls.Add(outer);viewport.SizeChanged+=(sender,e)=>ScheduleResponsiveLayout();
   foreach(var h in new[]{222,128,38,34})outer.RowStyles.Add(new RowStyle(SizeType.Absolute,h));outer.RowStyles.Add(new RowStyle(SizeType.Percent,100));outer.RowStyles.Add(new RowStyle(SizeType.Absolute,10));
   var prep=new CardPanel{Dock=DockStyle.Fill,Margin=new Padding(0,0,0,6)};outer.Controls.Add(prep);
-  var fields=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=6};prep.Controls.Add(fields);fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,102));fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,72));foreach(var h in new[]{30,32,24,32,24,40})fields.RowStyles.Add(new RowStyle(SizeType.Absolute,h));
+  var fields=new BufferedTable{Dock=DockStyle.Fill,ColumnCount=3,RowCount=6};prep.Controls.Add(fields);fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,102));fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,72));foreach(var h in new[]{30,32,24,32,24,40})fields.RowStyles.Add(new RowStyle(SizeType.Absolute,h));
   var heading=new SectionTitle("01","恢复前 · 选择备份与安装位置");fields.Controls.Add(heading,0,0);fields.SetColumnSpan(heading,3);
   PathRow(fields,1,"全量备份",backup,()=>{using(var d=new OpenFileDialog{Filter="Hermes 备份 (*.zip)|*.zip",InitialDirectory=Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)})if(d.ShowDialog()==DialogResult.OK)backup.Text=d.FileName;});
   backupDate.Dock=DockStyle.Fill;backupDate.ForeColor=Color.FromArgb(112,139,180);backupDate.Font=new Font(Font.FontFamily,9);fields.Controls.Add(backupDate,1,2);fields.SetColumnSpan(backupDate,2);
   PathRow(fields,3,"Hermes安装目录",install,()=>{using(var d=new FolderBrowserDialog{Description="选择本机 Hermes 安装目录",SelectedPath=install.Text})if(d.ShowDialog()==DialogResult.OK)install.Text=d.SelectedPath;});
   installNote.Dock=DockStyle.Fill;installNote.ForeColor=Color.FromArgb(112,139,180);installNote.Font=new Font(Font.FontFamily,9);fields.Controls.Add(installNote,1,4);fields.SetColumnSpan(installNote,2);
-  var primary=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false,Margin=new Padding(0),Padding=new Padding(0,2,0,0)};fields.Controls.Add(primary,0,5);fields.SetColumnSpan(primary,3);
+  var primary=new BufferedFlow{Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false,Margin=new Padding(0),Padding=new Padding(0,2,0,0)};fields.Controls.Add(primary,0,5);fields.SetColumnSpan(primary,3);
   restore=Btn(primary,"开始恢复",StartRestore);inspect=Btn(primary,"检查备份与环境",()=>Work(Check));((RaisedButton)inspect).Primary=true;((RaisedButton)inspect).Glyph="search";((RaisedButton)restore).Pink=true;((RaisedButton)restore).Glyph="play";
   foreach(var b in new[]{inspect,restore}){b.Size=new Size(148,34);b.Font=new Font(Font.FontFamily,9,FontStyle.Bold);}restore.Enabled=false;
   var post=new CardPanel{Dock=DockStyle.Fill,Margin=new Padding(0,0,0,6)};outer.Controls.Add(post);
-  var after=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3};post.Controls.Add(after);after.RowStyles.Add(new RowStyle(SizeType.Absolute,28));after.RowStyles.Add(new RowStyle(SizeType.Absolute,22));after.RowStyles.Add(new RowStyle(SizeType.Percent,100));after.Controls.Add(new SectionTitle("02","恢复后 · 检查配置与启动服务"));after.Controls.Add(new Label{Text="数据恢复完成后，再检查模型、API 和消息平台。",Dock=DockStyle.Fill,ForeColor=Color.FromArgb(112,139,180),Font=new Font(Font.FontFamily,9),Padding=new Padding(54,0,0,0)});
-  var row2=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,Padding=new Padding(0,2,0,0)};after.Controls.Add(row2);
+  var after=new BufferedTable{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3};post.Controls.Add(after);after.RowStyles.Add(new RowStyle(SizeType.Absolute,28));after.RowStyles.Add(new RowStyle(SizeType.Absolute,22));after.RowStyles.Add(new RowStyle(SizeType.Percent,100));after.Controls.Add(new SectionTitle("02","恢复后 · 检查配置与启动服务"));after.Controls.Add(new Label{Text="数据恢复完成后，再检查模型、API 和消息平台。",Dock=DockStyle.Fill,ForeColor=Color.FromArgb(112,139,180),Font=new Font(Font.FontFamily,9),Padding=new Padding(54,0,0,0)});
+  var row2=new BufferedFlow{Dock=DockStyle.Fill,WrapContents=false,Padding=new Padding(0,2,0,0)};after.Controls.Add(row2);
   doctor=Btn(row2,"本地配置体检",()=>Work(Diagnostics));network=Btn(row2,"API 联网检查",()=>{if(MessageBox.Show("将通过 Hermes 查询当前模型提供商的账户信息。会访问外网，不发送聊天消息；仅支持 Hermes usage 支持的提供商。继续？","联网检查",MessageBoxButtons.OKCancel)==DialogResult.OK)Work(()=>{Command("usage");SetStatus("账户接口检查完成；请在 Hermes 中再测试所选模型对话。");});});gateway=Btn(row2,"启动 / 修复网关",()=>{if(MessageBox.Show("将安装并启动 Hermes 网关。恢复的机器人和定时任务可能开始执行。继续？","启动网关",MessageBoxButtons.OKCancel)==DialogResult.OK)Work(()=>{Command("gateway install");Command("gateway status");SetStatus("网关操作完成，请实际测试平台收发和定时任务。");});});
-  Action resizePost=()=>{int gap=(int)(6*DeviceDpi/96f);int w=Math.Max(1,(row2.ClientSize.Width-3*gap)/3);foreach(var button in new[]{doctor,network,gateway}){button.Width=w;button.Height=(int)(34*DeviceDpi/96f);button.Margin=new Padding(0,0,gap,0);}};row2.SizeChanged+=(sender,e)=>resizePost();Shown+=(sender,e)=>resizePost();
+  Action resizePost=()=>{int gap=(int)(6*DeviceDpi/96f);int w=Math.Max(1,(row2.ClientSize.Width-3*gap)/3);foreach(var button in new[]{doctor,network,gateway}){var size=new Size(w,(int)(34*DeviceDpi/96f));if(button.Size!=size)button.Size=size;var margin=new Padding(0,0,gap,0);if(button.Margin!=margin)button.Margin=margin;}};row2.SizeChanged+=(sender,e)=>ScheduleResponsiveLayout();
   status.Text="等待检查。恢复开始时会自动停止网关并关闭 Hermes 后台进程。";status.Dock=DockStyle.Fill;status.ForeColor=Color.FromArgb(87,115,155);status.Padding=new Padding(5,9,0,0);outer.Controls.Add(status);
-  var logHead=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Margin=new Padding(0)};logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,84));logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,84));logHead.Controls.Add(new Label{Text="操作日志 · 选中文字可复制",Dock=DockStyle.Fill,Font=new Font(Font,FontStyle.Bold),ForeColor=CuteTheme.Navy,Padding=new Padding(5,6,0,0)},0,0);var save=new RaisedButton{Text="保存日志",Dock=DockStyle.Fill,Margin=new Padding(0,0,6,0)};save.Click+=(sender,e)=>SaveLog();logHead.Controls.Add(save,1,0);var clear=new RaisedButton{Text="清空日志",Glyph="clear",Dock=DockStyle.Fill,Margin=new Padding(0)};clear.Click+=(sender,e)=>logs.Clear();logHead.Controls.Add(clear,2,0);actions.Add(clear);outer.Controls.Add(logHead);
+  var logHead=new BufferedTable{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Margin=new Padding(0)};logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,84));logHead.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,84));logHead.Controls.Add(new Label{Text="操作日志 · 选中文字可复制",Dock=DockStyle.Fill,Font=new Font(Font,FontStyle.Bold),ForeColor=CuteTheme.Navy,Padding=new Padding(5,6,0,0)},0,0);var save=new RaisedButton{Text="保存日志",Dock=DockStyle.Fill,Margin=new Padding(0,0,6,0)};save.Click+=(sender,e)=>SaveLog();logHead.Controls.Add(save,1,0);var clear=new RaisedButton{Text="清空日志",Glyph="clear",Dock=DockStyle.Fill,Margin=new Padding(0)};clear.Click+=(sender,e)=>logs.Clear();logHead.Controls.Add(clear,2,0);actions.Add(clear);outer.Controls.Add(logHead);
   var well=new CardPanel{Dock=DockStyle.Fill,Inset=true,Padding=new Padding(10),Margin=new Padding(0)};outer.Controls.Add(well);logs.ReadOnly=true;logs.ShortcutsEnabled=true;logs.HideSelection=false;logs.ScrollBars=RichTextBoxScrollBars.Both;logs.WordWrap=false;logs.Dock=DockStyle.Fill;logs.Font=new Font("Microsoft YaHei UI",9);logBold=new Font(logs.Font,FontStyle.Bold);logs.BackColor=Color.FromArgb(253,254,255);logs.ForeColor=Color.FromArgb(44,66,101);logs.BorderStyle=BorderStyle.None;logs.DetectUrls=false;well.Controls.Add(logs);
   var menu=new ContextMenuStrip();var copy=menu.Items.Add("复制选中文字 (Ctrl+C)");copy.Click+=(sender,e)=>logs.Copy();menu.Items.Add("全选 (Ctrl+A)").Click+=(sender,e)=>logs.SelectAll();menu.Opening+=(sender,e)=>copy.Enabled=logs.SelectionLength>0;logs.ContextMenuStrip=menu;logs.KeyDown+=(sender,e)=>{if(e.Control&&e.KeyCode==Keys.A){logs.SelectAll();e.SuppressKeyPress=true;}};progress.Dock=DockStyle.Fill;outer.Controls.Add(progress);
-  Action adapt=()=>{float d=DeviceDpi/96f;bool show=ClientSize.Width>=880*d;shell.GetControlFromPosition(0,0).Visible=show;shell.ColumnStyles[0].Width=show?164*d:0;outer.Height=Math.Max((int)(480*d),viewport.ClientSize.Height);};SizeChanged+=(sender,e)=>adapt();DpiChanged+=(sender,e)=>BeginInvoke(adapt);Shown+=(sender,e)=>{var area=Screen.FromControl(this).WorkingArea;MinimumSize=new Size(Math.Min(MinimumSize.Width,area.Width-24),Math.Min(MinimumSize.Height,area.Height-24));Size=new Size(Math.Min(Width,area.Width-24),Math.Min(Height,area.Height-24));Location=new Point(area.Left+(area.Width-Width)/2,area.Top+(area.Height-Height)/2);adapt();};
+  responsiveLayout=()=>{
+   float d=DeviceDpi/96f;bool show=ClientSize.Width>=880*d;var sidebar=shell.GetControlFromPosition(0,0);float sidebarWidth=show?164*d:0;
+   shell.SuspendLayout();try{if(sidebar.Visible!=show)sidebar.Visible=show;if(shell.ColumnStyles[0].Width!=sidebarWidth)shell.ColumnStyles[0].Width=sidebarWidth;}finally{shell.ResumeLayout(true);}
+   outer.SuspendLayout();row2.SuspendLayout();try{int h=Math.Max((int)(480*d),viewport.ClientSize.Height);if(outer.Height!=h)outer.Height=h;resizePost();}finally{outer.ResumeLayout(true);row2.ResumeLayout(true);}
+  };
+  SizeChanged+=(sender,e)=>ScheduleResponsiveLayout();DpiChanged+=(sender,e)=>ScheduleResponsiveLayout();
+  initialLayout=()=>{
+   // OnLoad runs before first visibility: settle screen fit and all dependent layouts here.
+   var area=Screen.FromControl(this).WorkingArea;SuspendLayout();try{MinimumSize=new Size(Math.Min(MinimumSize.Width,area.Width-24),Math.Min(MinimumSize.Height,area.Height-24));Size=new Size(Math.Min(Width,area.Width-24),Math.Min(Height,area.Height-24));Location=new Point(area.Left+(area.Width-Width)/2,area.Top+(area.Height-Height)/2);}finally{ResumeLayout(true);}
+   layoutReady=true;ApplyResponsiveLayout();PerformLayout();ApplyResponsiveLayout();
+  };
   backup.TextChanged+=(sender,e)=>{InvalidateCheck();UpdateBackupDate();};install.TextChanged+=(sender,e)=>{InvalidateCheck();UpdateInstallation();};home.TextChanged+=(sender,e)=>InvalidateCheck();exe.TextChanged+=(sender,e)=>InvalidateCheck();
   install.Text=Core.DetectInstall();if(string.IsNullOrEmpty(install.Text))UpdateInstallation();
   UpdateBackupDate();

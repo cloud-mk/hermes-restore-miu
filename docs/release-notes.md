@@ -1,10 +1,13 @@
-## miu edition v1.5.0
+## miu edition v1.5.1
 
-- Compact 940 × 620 logical-pixel layout; sidebar hides on narrow windows.
-- Per-monitor V2 DPI support with .NET Framework 4.8, DPI-scaled text and button geometry.
-- Simple text-only buttons and reduced vertical spacing; log font reduced to 9 pt.
-- Removed the four-button footer; Save log now sits next to Clear log.
-- Select logs with the mouse, copy from the context menu or Ctrl+C, select all with Ctrl+A.
-- Restoration and credential masking behavior retained.
+Fix startup flicker caused by post-visibility layout changes in v1.5.0.
 
-Extract the full ZIP and keep HermesRestore.exe.config beside the EXE. Windows 10/11 and .NET Framework 4.8 are required. Real composited-window checks were performed at the current 200% display scale; physical multi-monitor DPI transitions still require user validation. No real user data was restored during testing.
+- Settle screen fit, sidebar visibility and button sizes before first display rather than in Shown handlers.
+- Coalesce runtime resize and DPI layout updates, prevent recursive updates and skip unchanged sizes.
+- Buffer layout containers and composite native child controls as a complete window.
+- Preserve compact layout, DPI support, log selection/copy and restoration behavior.
+- Add test-ui.ps1 and startup/resize regression tests.
+
+Local checks at 200% DPI found 25 child size changes after visibility in v1.5.0 and zero in v1.5.1. Startup/resize regressions, 10 core tests, log-copy checks and actual composited-window button checks at two sizes passed (normal, hover, pressed, disabled and focus; 360 corner samples). No real user backup was restored; physical monitor DPI transitions remain untested.
+
+Extract the complete ZIP and retain HermesRestore.exe.config beside the EXE. Requires Windows 10/11 and .NET Framework 4.8.

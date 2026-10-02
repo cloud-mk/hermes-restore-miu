@@ -36,6 +36,8 @@ Windows PowerShell 中运行：
 ```powershell
 ./build.ps1
 ./test.ps1
+# 在 Windows 桌面验证启动与窗口大小切换
+./test-ui.ps1
 ```
 
 使用 Windows 自带 .NET Framework C# 编译器，无需第三方 NuGet 依赖。产物位于 `dist/`。源码是 `src/HermesRestore.cs`；插画为 `assets/cat-sidebar.png`。
